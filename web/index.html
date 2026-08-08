@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Statute — multi-tenant public records with a scope you cannot forget</title>
+<style>
+  :root{--bg:#fbfbf9;--ink:#15171a;--muted:#5e6771;--line:#e4e4de;--card:#fff;
+        --accent:#3a4a7a;--ok:#1e6a4c;--bad:#a03626;
+        --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#101215;--ink:#eef0f3;--muted:#959ea9;--line:#252830;--card:#171a1f;
+          --accent:#8ba1dd;--ok:#78c8a0;--bad:#e2907c;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:940px;margin:0 auto;padding:38px 20px 80px}
+  header{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:22px}
+  h1{font-size:27px;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--muted);margin:0}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);
+     font-family:var(--mono);margin:28px 0 10px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}
+  select,input[type=text]{padding:9px 11px;border:1px solid var(--line);border-radius:7px;
+    background:var(--card);color:var(--ink);font:inherit}
+  input[type=text]{flex:1 1 260px;min-width:0}
+  button{padding:9px 15px;border:1px solid var(--accent);border-radius:7px;
+    background:var(--accent);color:#fff;cursor:pointer;font:inherit}
+  button.ghost{background:transparent;color:var(--accent);font-size:13px;padding:6px 11px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:9px;
+        padding:12px 15px;margin:9px 0}
+  .card h3{margin:0 0 4px;font-size:15px}
+  .id{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .status{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;
+          border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-left:6px}
+  pre{font-family:var(--mono);font-size:12.5px;margin:0;white-space:pre-wrap;word-break:break-word}
+  .ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
+  .note{color:var(--muted);font-size:13.5px;margin:8px 0 0}
+  code{font-family:var(--mono);font-size:.92em}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Statute</h1>
+  <p class="sub">Records and grounded answers for three agencies on one deployment. The tenant scope is a capability, not a parameter someone has to remember.</p>
+</header>
+
+<div class="row">
+  <label>acting as
+    <select id="key" onchange="load()">
+      <option value="key-clark-county">Clark County Permits</option>
+      <option value="key-riverside">Riverside Public Works</option>
+      <option value="key-statewide">Statewide Licensing Board</option>
+      <option value="bad-key">(an invalid key)</option>
+    </select>
+  </label>
+  <span id="who"></span>
+</div>
+
+<h2>Ask</h2>
+<div class="row">
+  <input type="text" id="q" value="culvert replacement" onkeydown="if(event.key==='Enter')ask()">
+  <button onclick="ask()">Ask</button>
+</div>
+<div class="row">
+  <button class="ghost" onclick="$('q').value='culvert replacement';ask()">a Riverside project</button>
+  <button class="ghost" onclick="$('q').value='setback variance';ask()">a Clark County variance</button>
+  <button class="ghost" onclick="$('q').value='contractor licence renewal';ask()">a statewide licence</button>
+</div>
+<div id="answer"></div>
+<p class="note">Switch agency and re-ask the same question. Each one answers only from its own holdings and refuses cleanly rather than
+  reaching across — naming another agency in the question does not help.</p>
+
+<h2>Cross-tenant fetch</h2>
+<div class="row">
+  <input type="text" id="rid" value="rv-2026-0067">
+  <button onclick="fetchOne()">GET /api/records/{id}</button>
+</div>
+<div id="one"></div>
+<p class="note">A record belonging to another agency returns <code>404</code>, not <code>403</code>. A 403 would confirm the id exists to a caller who should not have it.</p>
+
+<h2>Records</h2>
+<div id="records"></div>
+</div>
+
+<script>
+const $ = i => document.getElementById(i);
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const hdrs = () => ({'X-API-Key': $('key').value});
+
+async function load(){
+  const w = await fetch('/api/whoami', {headers: hdrs()});
+  if (!w.ok){
+    $('who').innerHTML = '<span class="bad">401 unauthorised</span>';
+    $('records').innerHTML = ''; $('answer').innerHTML = ''; return;
+  }
+  const who = await w.json();
+  $('who').innerHTML = '<span class="id">tenant ' + esc(who.tenant) + '</span>';
+
+  const d = await (await fetch('/api/records', {headers: hdrs()})).json();
+  $('records').innerHTML = d.records.map(r =>
+    '<div class="card"><h3>' + esc(r.title) +
+    '<span class="status">' + esc(r.status) + '</span></h3>' +
+    '<div class="id">' + esc(r.id) + ' · ' + esc(r.kind) + ' · filed ' + esc(r.filed_on) + '</div>' +
+    '<p style="margin:6px 0 0">' + esc(r.body) + '</p></div>').join('');
+  ask();
+}
+
+async function ask(){
+  const r = await fetch('/api/ask?q=' + encodeURIComponent($('q').value), {headers: hdrs()});
+  if (!r.ok){ $('answer').innerHTML = '<div class="card bad">401 unauthorised</div>'; return; }
+  const d = await r.json();
+  $('answer').innerHTML = d.grounded
+    ? '<div class="card"><span class="ok">grounded</span><pre style="margin-top:8px">' +
+      esc(d.answer) + '</pre>' + d.citations.map(c =>
+        '<div style="margin-top:9px"><span class="id">' + esc(c.record_id) + '</span> — ' +
+        esc(c.title) + '<br><span class="id">' + esc(c.excerpt) + '</span></div>').join('') + '</div>'
+    : '<div class="card"><span class="bad">refused</span><pre style="margin-top:8px">' +
+      esc(d.refused_reason) + '</pre></div>';
+}
+
+async function fetchOne(){
+  const r = await fetch('/api/records/' + encodeURIComponent($('rid').value), {headers: hdrs()});
+  const body = await r.text();
+  $('one').innerHTML = '<div class="card"><span class="' + (r.ok ? 'ok' : 'bad') + '">HTTP ' +
+    r.status + '</span><pre style="margin-top:8px">' + esc(body.slice(0, 500)) + '</pre></div>';
+}
+load();
+</script>
+</body>
+</html>
